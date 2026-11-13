@@ -1,0 +1,19 @@
+{
+  "name": "Gala3D — 3D Event Design & Floor Planner",
+  "short_name": "Gala3D",
+  "description": "Professional 3D event design, seating chart, and venue floor planner that runs both offline and online.",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
+  "categories": ["design", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%23d4af37'%3E%3Cpath d='m256 64-40 120a40 40 0 0 1-26 26L64 256l120 40a40 40 0 0 1 26 26l40 120 40-120a40 40 0 0 1 26-26l120-40-120-40a40 40 0 0 1-26-26L256 64Z'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

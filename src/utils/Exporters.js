@@ -1,0 +1,177 @@
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { formatCurrency, formatDimension } from './MathUtils.js';
+
+export class Exporters {
+  /**
+   * Export project to portable .gala3d JSON file
+   */
+  static exportProjectFile(project) {
+    const jsonStr = JSON.stringify(project, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const filename = `${(project.name || 'Gala3D_Project').replace(/[^a-z0-9]/gi, '_')}.gala3d`;
+    this.downloadBlob(blob, filename);
+  }
+
+  /**
+   * Import project from .gala3d file
+   */
+  static async importProjectFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          if (!parsed.venue || !Array.isArray(parsed.items)) {
+            throw new Error('Invalid Gala3D project structure.');
+          }
+          resolve(parsed);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = (e) => reject(e);
+      reader.readAsText(file);
+    });
+  }
+
+  /**
+   * Export 3D Scene to GLB (glTF binary)
+   */
+  static exportGLB(engine, filename = 'Gala3D_Scene.glb') {
+    return new Promise((resolve, reject) => {
+      const exporter = new GLTFExporter();
+      // Temporarily detach gizmo helper so it's not exported
+      const gizmo = engine.transformControls.getHelper();
+      const origGizmoVis = gizmo.visible;
+      gizmo.visible = false;
+
+      exporter.parse(
+        engine.scene,
+        (gltf) => {
+          gizmo.visible = origGizmoVis;
+          const blob = new Blob([gltf], { type: 'model/gltf-binary' });
+          this.downloadBlob(blob, filename);
+          resolve(blob);
+        },
+        (error) => {
+          gizmo.visible = origGizmoVis;
+          console.error('GLTFExporter error:', error);
+          reject(error);
+        },
+        { binary: true }
+      );
+    });
+  }
+
+  /**
+   * Export Bill of Materials (BOM) to CSV
+   */
+  static exportBOMToCSV(bom, projectName = 'Gala3D Event') {
+    let csv = `Gala3D Event Budget & Bill of Materials\n`;
+    csv += `Project:,"${projectName}"\n`;
+    csv += `Date:,"${new Date().toLocaleDateString()}"\n\n`;
+    csv += `Category,Item Description,Quantity,Unit Price,Total Cost\n`;
+
+    bom.rows.forEach(r => {
+      csv += `"${r.category}","${r.name}",${r.quantity},${r.unitPrice.toFixed(2)},${r.totalPrice.toFixed(2)}\n`;
+    });
+
+    csv += `\n,,,Subtotal:,${bom.subtotal.toFixed(2)}\n`;
+    csv += `,,,Tax (${bom.taxRate || 8}%):,${bom.tax.toFixed(2)}\n`;
+    if (bom.discount > 0) {
+      csv += `,,,Discount:,${bom.discount.toFixed(2)}\n`;
+    }
+    csv += `,,,Total Estimated Cost:,${bom.total.toFixed(2)}\n`;
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const filename = `${projectName.replace(/[^a-z0-9]/gi, '_')}_Bill_of_Materials.csv`;
+    this.downloadBlob(blob, filename);
+  }
+
+  /**
+   * Export 2D Floor Plan CAD Blueprint as PNG with Title Block & Scale
+   */
+  static export2DBlueprint(engine, store, width = 3000, height = 2000) {
+    // Capture top-down orthographic snapshot
+    const origMode = engine.viewMode;
+    engine.setViewMode('2d');
+
+    const blueprintUrl = engine.captureSnapshot(width, height);
+    engine.setViewMode(origMode);
+
+    // Composite with title block, dimensions, legend, and border onto a canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    const img = new Image();
+    img.onload = () => {
+      // 1. Draw top-down render
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // 2. Blueprint Outer Border & Title Block
+      ctx.strokeStyle = '#1e3a8a';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(20, 20, width - 40, height - 40);
+
+      // Title Block Box in bottom-right corner
+      const tbW = 750;
+      const tbH = 220;
+      const tbX = width - tbW - 35;
+      const tbY = height - tbH - 35;
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.fillRect(tbX, tbY, tbW, tbH);
+      ctx.strokeStyle = '#1e3a8a';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(tbX, tbY, tbW, tbH);
+
+      // Title Block Content
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 34px sans-serif';
+      ctx.fillText(store.project.name || 'Gala3D Event Floor Plan', tbX + 25, tbY + 50);
+
+      ctx.fillStyle = '#475569';
+      ctx.font = '22px sans-serif';
+      ctx.fillText(`Venue: ${formatDimension(store.project.venue.width)} × ${formatDimension(store.project.venue.length)} (${store.project.venue.width * store.project.venue.length} m²)`, tbX + 25, tbY + 95);
+
+      const stats = store.getCapacityStats();
+      ctx.fillText(`Seated Capacity: ${stats.totalSeats} seats | Items: ${store.project.items.length}`, tbX + 25, tbY + 135);
+
+      ctx.font = 'italic 18px sans-serif';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText(`Generated by Gala3D • ${new Date().toLocaleDateString()}`, tbX + 25, tbY + 180);
+
+      // North Arrow in top-left
+      ctx.fillStyle = '#1e3a8a';
+      ctx.beginPath();
+      ctx.moveTo(80, 50);
+      ctx.lineTo(65, 110);
+      ctx.lineTo(80, 95);
+      ctx.lineTo(95, 110);
+      ctx.closePath();
+      ctx.fill();
+      ctx.font = 'bold 24px sans-serif';
+      ctx.fillText('N', 72, 140);
+
+      // Download final composite
+      canvas.toBlob((blob) => {
+        const filename = `${(store.project.name || 'Gala3D').replace(/[^a-z0-9]/gi, '_')}_2D_Blueprint.png`;
+        Exporters.downloadBlob(blob, filename);
+      }, 'image/png');
+    };
+    img.src = blueprintUrl;
+  }
+
+  static downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+}
